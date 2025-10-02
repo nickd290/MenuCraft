@@ -1,0 +1,17 @@
+# Ignore frontend build files and source
+src/
+public/
+dist/
+index.html
+vite.config.ts
+tailwind.config.js
+postcss.config.js
+tsconfig.json
+tsconfig.node.json
+
+# Reference files not needed for backend
+menu-pdfs/
+reference-menus/
+
+# Development files
+.claude/
