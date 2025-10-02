@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Upload, Image as ImageIcon, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, Image as ImageIcon, ArrowLeft, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react'
 
 interface ExtractedMenuData {
   restaurantName?: string
@@ -60,6 +60,7 @@ interface ExtractedMenuData {
 
 const UploadPage = () => {
   const navigate = useNavigate()
+  const [uploadMode, setUploadMode] = useState<'image' | 'word'>('image')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [base64Image, setBase64Image] = useState<string | null>(null)
@@ -140,6 +141,34 @@ const UploadPage = () => {
     }
   }
 
+  const extractWordDocument = async () => {
+    if (!selectedFile) return
+
+    setIsProcessing(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('document', selectedFile)
+
+      const response = await fetch('/api/extract-word', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to extract Word document')
+      }
+
+      const data = await response.json()
+      setExtractedData(data)
+      setIsProcessing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+      setIsProcessing(false)
+    }
+  }
+
   const handleConfirmAndEdit = () => {
     if (extractedData && base64Image) {
       // Store extracted data (content + design) and original image in sessionStorage
@@ -191,8 +220,40 @@ const UploadPage = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left: Upload & Preview */}
           <div className="space-y-6">
+            {/* Upload Mode Tabs */}
+            {!previewUrl && !selectedFile && (
+              <div className="flex gap-2 border-b border-slate-200">
+                <button
+                  onClick={() => setUploadMode('image')}
+                  className={`px-4 py-2 font-medium transition-colors relative ${
+                    uploadMode === 'image'
+                      ? 'text-[#0f7c5a] border-b-2 border-[#0f7c5a]'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4" />
+                    Image Upload
+                  </div>
+                </button>
+                <button
+                  onClick={() => setUploadMode('word')}
+                  className={`px-4 py-2 font-medium transition-colors relative ${
+                    uploadMode === 'word'
+                      ? 'text-[#0f7c5a] border-b-2 border-[#0f7c5a]'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Word Document
+                  </div>
+                </button>
+              </div>
+            )}
+
             {/* Upload Area */}
-            {!previewUrl && (
+            {!previewUrl && !selectedFile && uploadMode === 'image' && (
               <Card>
                 <CardContent className="p-0">
                   <div
@@ -224,6 +285,86 @@ const UploadPage = () => {
                       </p>
                     </label>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Word Upload Area */}
+            {!previewUrl && !selectedFile && uploadMode === 'word' && (
+              <Card>
+                <CardContent className="p-0">
+                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-12 text-center hover:border-slate-400 transition-colors cursor-pointer">
+                    <input
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="word-upload"
+                    />
+                    <label htmlFor="word-upload" className="cursor-pointer block">
+                      <FileText className="w-16 h-16 mx-auto mb-4 text-slate-400" />
+                      <h3 className="text-lg font-semibold mb-2">Upload Word Document</h3>
+                      <p className="text-sm text-slate-600 mb-4">
+                        Click to browse for your menu document
+                      </p>
+                      <div className="inline-block">
+                        <div className="px-4 py-2 bg-[#0f7c5a] text-white rounded-lg hover:bg-[#0d6a4d] transition-colors inline-flex items-center gap-2 font-medium">
+                          <FileText className="w-4 h-4" />
+                          Choose Document
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-4">
+                        Supports .docx format • Max 10MB
+                      </p>
+                    </label>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* File Selected Preview */}
+            {selectedFile && !previewUrl && !extractedData && (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-[#0f7c5a]" />
+                        {selectedFile.name}
+                      </h3>
+                      <p className="text-sm text-slate-500 mt-1">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB • Ready to extract
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedFile(null)
+                        setError(null)
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                  <Button
+                    className="w-full bg-[#0f7c5a] hover:bg-[#0d6a4d] text-white"
+                    size="lg"
+                    onClick={uploadMode === 'word' ? extractWordDocument : extractMenuData}
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Extracting...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 mr-2" />
+                        {uploadMode === 'word' ? 'Extract from Word' : 'Extract with AI'}
+                      </>
+                    )}
+                  </Button>
                 </CardContent>
               </Card>
             )}
@@ -273,7 +414,7 @@ const UploadPage = () => {
                 <ol className="space-y-2 text-sm text-slate-600">
                   <li className="flex gap-2">
                     <span className="font-semibold text-slate-900">1.</span>
-                    Upload a clear photo of your current menu
+                    Upload a photo or Word document (.docx) of your menu
                   </li>
                   <li className="flex gap-2">
                     <span className="font-semibold text-slate-900">2.</span>

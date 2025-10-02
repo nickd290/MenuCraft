@@ -3,6 +3,8 @@ import express from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import multer from 'multer'
+import mammoth from 'mammoth'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -17,6 +19,12 @@ app.use(express.static(join(__dirname, '../dist')))
 // Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || ''
+})
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 })
 
 // Health check
@@ -463,6 +471,114 @@ Return ONLY valid JSON, no other text`
     })
   }
 })
+
+// Word document extraction endpoint
+app.post('/api/extract-word', upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No document provided' })
+    }
+
+    // Extract text from Word document
+    const result = await mammoth.extractRawText({ buffer: req.file.buffer })
+    const text = result.value
+
+    console.log('\n=== WORD DOCUMENT EXTRACTION ===')
+    console.log('Document size:', req.file.size, 'bytes')
+    console.log('Text length:', text.length, 'characters')
+
+    // Parse the text into menu structure
+    const parsedMenu = parseWordDocument(text)
+
+    console.log('Sections extracted:', parsedMenu.sections.length)
+    console.log('Restaurant name:', parsedMenu.restaurantName || 'Not detected')
+    console.log('=== END EXTRACTION ===\n')
+
+    res.json(parsedMenu)
+  } catch (error) {
+    console.error('Word extraction error:', error)
+    res.status(500).json({
+      error: 'Failed to extract Word document',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
+// Helper function to parse Word document text into menu structure
+function parseWordDocument(text: string) {
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+
+  const sections: any[] = []
+  let currentSection: any = null
+  let restaurantName = ''
+
+  // Price patterns to detect
+  const pricePattern = /\$?\d+(\.\d{2})?|\d+\.\d{2}$/
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // Try to detect restaurant name (usually first few lines, all caps or title case)
+    if (i < 3 && line.length < 50 && !pricePattern.test(line) && !restaurantName) {
+      if (line === line.toUpperCase() || /^[A-Z][a-z]+(\s[A-Z][a-z]+)*$/.test(line)) {
+        restaurantName = line
+        continue
+      }
+    }
+
+    // Detect section headers (all caps, no price, or followed by multiple items)
+    const isAllCaps = line === line.toUpperCase() && line.length < 100
+    const hasNoPrice = !pricePattern.test(line)
+    const nextLinesHaveItems = i < lines.length - 2 &&
+      lines.slice(i + 1, i + 3).some(l => pricePattern.test(l))
+
+    if ((isAllCaps || nextLinesHaveItems) && hasNoPrice && line.length < 100) {
+      // Start new section
+      if (currentSection && currentSection.items.length > 0) {
+        sections.push(currentSection)
+      }
+
+      currentSection = {
+        title: line,
+        items: []
+      }
+      continue
+    }
+
+    // Detect menu items (has a price)
+    const priceMatch = line.match(/\$?(\d+(?:\.\d{2})?)$/)
+    if (priceMatch && currentSection) {
+      const price = priceMatch[1]
+      const nameAndDesc = line.substring(0, line.lastIndexOf(priceMatch[0])).trim()
+
+      // Split name and description (description is often in lowercase or after a dash/period)
+      let name = nameAndDesc
+      let description = ''
+
+      const descSplit = nameAndDesc.match(/^([^.-]+)[\s.-]+(.+)/)
+      if (descSplit) {
+        name = descSplit[1].trim()
+        description = descSplit[2].trim()
+      }
+
+      currentSection.items.push({
+        name: name,
+        description: description,
+        price: price
+      })
+    }
+  }
+
+  // Add last section
+  if (currentSection && currentSection.items.length > 0) {
+    sections.push(currentSection)
+  }
+
+  return {
+    restaurantName: restaurantName || undefined,
+    sections: sections
+  }
+}
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)
