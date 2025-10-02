@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://glistening-creation-production.up.railway.app/api/:path*"
+      "destination": "https://menucraft-production.up.railway.app/api/:path*"
     },
     {
       "source": "/(.*)",
